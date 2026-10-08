@@ -3,7 +3,6 @@
 # copyright = ""
 # version = "1.0"
 
-import json
 import logging
 
 from models.credentialsdetails import CredentialsDetails
@@ -70,37 +69,28 @@ def rotate_creds(username, password, datasource, gateway):
     gateway_api_response = data_source_service.get_gateway(access_token, gateway_id)
 
     if not gateway_api_response.ok:
+        # A cloud gateway is not returned by the gateways API, so carry on without a public key
         if not gateway_api_response.reason == "Not Found":
-            return (
-                json.dumps(
-                    {
-                        "errorMsg": str(
-                            f'Error {gateway_api_response.status_code} {gateway_api_response.reason}\\nRequest Id:\t{gateway_api_response.headers.get("RequestId")}'
-                        )
-                    }
-                ),
-                gateway_api_response.status_code,
+            raise CredentialUpdateError(
+                f"Failed to retrieve gateway {gateway_id}: Error {gateway_api_response.status_code} "
+                f'{gateway_api_response.reason}, Request Id: {gateway_api_response.headers.get("RequestId")}'
             )
     else:
         gateway = gateway_api_response.json()
         logger.info("Gateway info retrieved successfully")
 
-    try:
-        update_creds_service = UpdateCredentialsService()
-        api_response = update_creds_service.update_datasource(
-            access_token,
-            request_data["credType"],
-            request_data["privacyLevel"],
-            request_data["credentialsArray"],
-            gateway,
-            request_data["datasourceId"],
+    update_creds_service = UpdateCredentialsService()
+    api_response = update_creds_service.update_datasource(
+        access_token,
+        request_data["credType"],
+        request_data["privacyLevel"],
+        request_data["credentialsArray"],
+        gateway,
+        request_data["datasourceId"],
+    )
+    if not api_response.ok:
+        raise CredentialUpdateError(
+            f"Failed to update datasource {datasource_id}: Error {api_response.status_code} "
+            f'{api_response.reason}, Request Id: {api_response.headers.get("RequestId")}'
         )
-        logger.info(api_response)
-        logger.info("Finished updating datasource %s", datasource_id)
-
-    except CredentialUpdateError as err:
-        logger.error("Failed to update data source credentials: %s", err)
-        raise Exception(
-            "Failed to rupdate data source credentials.",
-            err,
-        ) from err
+    logger.info("Finished updating datasource %s", datasource_id)
